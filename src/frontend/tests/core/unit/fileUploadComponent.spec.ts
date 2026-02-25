@@ -371,12 +371,10 @@ test(
       await page
         .getByRole("button", { name: "Playground", exact: true })
         .click();
-      // Use the chat header more menu to clear chat (stays in fullscreen)
-      await page
-        .locator('[data-testid^="session-"][data-testid$="-more-menu"]')
-        .last()
-        .click();
-      // await page.getByTestId("clear-chat-option").click();
+      // Exit fullscreen so the more menu is visible
+      await page.getByRole("button", { name: "Exit fullscreen" }).click();
+      await page.getByTestId("chat-header-more-menu").click();
+      await page.getByTestId("clear-chat-option").click();
       // await page.getByTestId("icon-MoreHorizontal").last().click();
       await page.getByText("Delete", { exact: true }).last().click();
 
