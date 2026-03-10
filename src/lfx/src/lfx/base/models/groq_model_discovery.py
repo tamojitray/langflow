@@ -23,7 +23,7 @@ class GroqModelDiscovery:
     CACHE_DURATION = timedelta(hours=24)  # Refresh cache every 24 hours
 
     # Models to skip from LLM list (audio, TTS, guards)
-    SKIP_PATTERNS = ["whisper", "tts", "guard", "safeguard", "prompt-guard", "saba"]
+    SKIP_PATTERNS = ["whisper", "tts", "guard", "safeguard", "prompt-guard", "saba", "orpheus"]
 
     def __init__(self, api_key: str | None = None, base_url: str = "https://api.groq.com"):
         """Initialize discovery with optional API key for testing.
@@ -163,12 +163,23 @@ class GroqModelDiscovery:
                 model=model_id, messages=messages, tools=tools, tool_choice="auto", max_tokens=10
             )
 
-        except (ImportError, AttributeError, TypeError, ValueError, RuntimeError, KeyError) as e:
+        except Exception as e:  # noqa: BLE001
             error_msg = str(e).lower()
-            # If error mentions tool calling, model doesn't support it
-            if "tool" in error_msg:
+
+            # "tool_use_failed" / "failed to call a function" means the model
+            # DID attempt to use tools but the generation failed (e.g. because
+            # our test prompt is too vague). This actually CONFIRMS tool support.
+            if "tool_use_failed" in error_msg or "failed_generation" in error_msg:
+                logger.debug(f"{model_id}: tool_use_failed — confirms tool calling support")
+                return True
+
+            # Errors that explicitly say tools are not supported by this model
+            if ("not support" in error_msg or "unsupported" in error_msg or "not available" in error_msg) and (
+                "tool" in error_msg or "function" in error_msg
+            ):
                 return False
-            # Other errors might be rate limits, etc - be conservative
+
+            # Other errors (rate limits, terms acceptance, API errors, etc.) - be conservative
             logger.warning(f"Error testing {model_id}: {e}")
             return False
         else:
