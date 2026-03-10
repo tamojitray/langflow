@@ -178,6 +178,16 @@ export function FlowPageSlidingContainerContent({
     }
   };
 
+  // Local cleanup without API call (for bulk delete)
+  const handleLocalCleanupAfterDelete = (sessionId: string) => {
+    // Remove from local sessions if it's a local session
+    removeLocalSession(sessionId);
+    // Clear messages from both React Query cache and Zustand store
+    clearSessionMessages(sessionId, currentFlowId);
+    deleteSessionFromStore(sessionId);
+    // Note: Don't switch session here, bulk delete handler will do it if needed
+  };
+
   const handleOpenLogs = (sessionId: string) => {
     setCurrentSessionId(sessionId);
     setOpenLogsModal(true);
@@ -203,6 +213,7 @@ export function FlowPageSlidingContainerContent({
                 onDeleteSession={handleDeleteSession}
                 onOpenLogs={handleOpenLogs}
                 renameLocalSession={renameLocalSession}
+                onLocalCleanupAfterDelete={handleLocalCleanupAfterDelete}
               />
             </div>
           </div>

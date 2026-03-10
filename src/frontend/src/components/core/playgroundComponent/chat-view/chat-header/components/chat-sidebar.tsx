@@ -17,6 +17,7 @@ interface ChatSidebarProps {
   onDeleteSession?: (sessionId: string) => void;
   onOpenLogs?: (sessionId: string) => void;
   renameLocalSession?: (oldSessionId: string, newSessionId: string) => void;
+  onLocalCleanupAfterDelete?: (sessionId: string) => void;
 }
 
 export function ChatSidebar({
@@ -27,6 +28,7 @@ export function ChatSidebar({
   onDeleteSession,
   onOpenLogs,
   renameLocalSession,
+  onLocalCleanupAfterDelete,
 }: ChatSidebarProps) {
   const [openMenuSession, setOpenMenuSession] = useState<string | null>(null);
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
@@ -104,10 +106,17 @@ export function ChatSidebar({
         onSuccess: () => {
           // Clear selection after successful deletion
           setSelectedSessions(new Set());
-          // Call onDeleteSession for each deleted session
-          sessionsToDelete.forEach((session) => {
-            onDeleteSession?.(session);
-          });
+          
+          // Perform local cleanup for each deleted session
+          // Note: We use onLocalCleanupAfterDelete instead of onDeleteSession
+          // because bulkDeleteSessions already deleted all sessions in a single API call.
+          // Calling onDeleteSession would trigger individual delete API calls for each session.
+          if (onLocalCleanupAfterDelete) {
+            sessionsToDelete.forEach((session) => {
+              onLocalCleanupAfterDelete(session);
+            });
+          }
+          
           // If current session was deleted, switch to default
           if (currentSessionId && sessionsToDelete.includes(currentSessionId)) {
             onSessionSelect?.(currentFlowId);
