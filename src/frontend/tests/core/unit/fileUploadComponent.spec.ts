@@ -371,12 +371,12 @@ test(
       await page
         .getByRole("button", { name: "Playground", exact: true })
         .click();
-       // Use the chat header more menu to clear chat (stays in fullscreen)
+      // Use the chat header more menu to clear chat (stays in fullscreen)
       await page
         .locator('[data-testid^="session-"][data-testid$="-more-menu"]')
         .last()
         .click();
-        
+
       await page.getByText("Delete", { exact: true }).last().click();
 
       await page.waitForSelector("text=Run Flow", {

@@ -31,27 +31,31 @@ export function ChatSidebar({
   onLocalCleanupAfterDelete,
 }: ChatSidebarProps) {
   const [openMenuSession, setOpenMenuSession] = useState<string | null>(null);
-  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(new Set());
+  const [selectedSessions, setSelectedSessions] = useState<Set<string>>(
+    new Set(),
+  );
   const currentFlowId = useGetFlowId();
   const isShareablePlayground = useFlowStore((state) => state.playgroundPage);
   const { handleDelete, handleRename } = useEditSessionInfo({
     flowId: currentFlowId,
     renameLocalSession,
   });
-  const { mutate: bulkDeleteSessions, isPending: isDeletingSessions } = useBulkDeleteSessions();
+  const { mutate: bulkDeleteSessions, isPending: isDeletingSessions } =
+    useBulkDeleteSessions();
 
   const sessionIds = useMemo(() => sessions, [sessions]);
 
   // Filter out the default session (currentFlowId) from selectable sessions
   const selectableSessions = useMemo(
     () => sessionIds.filter((session) => session !== currentFlowId),
-    [sessionIds, currentFlowId]
+    [sessionIds, currentFlowId],
   );
 
   const visibleSession = currentSessionId;
 
   // Check if all selectable sessions are selected
-  const allSelected = selectableSessions.length > 0 &&
+  const allSelected =
+    selectableSessions.length > 0 &&
     selectableSessions.every((session) => selectedSessions.has(session));
 
   const handleDeleteSession = (session: string) => {
@@ -106,7 +110,7 @@ export function ChatSidebar({
         onSuccess: () => {
           // Clear selection after successful deletion
           setSelectedSessions(new Set());
-          
+
           // Perform local cleanup for each deleted session
           // Note: We use onLocalCleanupAfterDelete instead of onDeleteSession
           // because bulkDeleteSessions already deleted all sessions in a single API call.
@@ -116,13 +120,13 @@ export function ChatSidebar({
               onLocalCleanupAfterDelete(session);
             });
           }
-          
+
           // If current session was deleted, switch to default
           if (currentSessionId && sessionsToDelete.includes(currentSessionId)) {
             onSessionSelect?.(currentFlowId);
           }
         },
-      }
+      },
     );
   };
 
@@ -162,7 +166,7 @@ export function ChatSidebar({
             const isDefaultSession = session === currentFlowId;
             const isFirstNonDefaultSession =
               index > 0 && sessionIds[index - 1] === currentFlowId;
-            
+
             return (
               <div key={session}>
                 {/* Show Select All controls after the default session */}
@@ -178,7 +182,9 @@ export function ChatSidebar({
                           name={allSelected ? "SquareCheck" : "Square"}
                           className={cn(
                             "h-4 w-4",
-                            allSelected ? "text-status-red" : "text-muted-foreground"
+                            allSelected
+                              ? "text-status-red"
+                              : "text-muted-foreground",
                           )}
                         />
                       </div>
@@ -190,7 +196,7 @@ export function ChatSidebar({
                       {selectedSessions.size > 0 && (
                         <ShadTooltip
                           styleClasses="z-50"
-                          content={`Delete ${selectedSessions.size} session${selectedSessions.size > 1 ? 's' : ''}`}
+                          content={`Delete ${selectedSessions.size} session${selectedSessions.size > 1 ? "s" : ""}`}
                           side="top"
                         >
                           <Button
