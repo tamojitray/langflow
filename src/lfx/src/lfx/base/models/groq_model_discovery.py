@@ -239,7 +239,14 @@ class GroqModelDiscovery:
             # only portable approach.  See _test_chat_completion for a full explanation.
             error_msg = str(e).lower()
             # Genuine capability error: model does not support tools
-            if "tool" in error_msg:
+            if "tool_use_failed" in error_msg or "failed_generation" in error_msg:
+                logger.debug(f"{model_id}: tool_use_failed — confirms tool calling support")
+                return True
+
+            # Errors that explicitly say tools are not supported by this model
+            if ("not support" in error_msg or "unsupported" in error_msg or "not available" in error_msg) and (
+                "tool" in error_msg or "function" in error_msg
+            ):
                 return False
             # Access/entitlement errors: model may support tools but is not accessible for this key
             if self._is_access_error(error_msg):
