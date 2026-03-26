@@ -60,6 +60,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), svgr(), tsconfigPaths()],
     server: {
       port: port,
+      allowedHosts: ["langflow.tamojitray.in"],
       proxy: {
         ...proxyTargets,
       },
