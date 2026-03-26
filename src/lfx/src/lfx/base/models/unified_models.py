@@ -1644,7 +1644,7 @@ def update_model_options_in_build_config(
         # Just handle the visibility logic and return
         if field_value == "connect_other_models":
             # User explicitly selected "Connect other models", show the handle
-            if cache_key_prefix == "embedding_model_options":
+            if "embedding" in cache_key_prefix:
                 build_config["model"]["input_types"] = ["Embeddings"]
             else:
                 build_config["model"]["input_types"] = ["LanguageModel"]
@@ -1696,7 +1696,7 @@ def update_model_options_in_build_config(
         options = cached.get("options", [])
         if options:
             # Determine model type based on cache_key_prefix
-            model_type = "embeddings" if cache_key_prefix == "embedding_model_options" else "language"
+            model_type = "embeddings" if "embedding" in cache_key_prefix else "language"
 
             # Try to get user's default model from the variable service
             default_model_name = None
@@ -1768,7 +1768,7 @@ def update_model_options_in_build_config(
                 build_config[model_field_name]["value"] = [default_model]
 
     # Handle visibility of the model input handle based on selection
-    if cache_key_prefix == "embedding_model_options":
+    if "embedding" in cache_key_prefix:
         build_config[model_field_name]["input_types"] = ["Embeddings"]
     else:
         build_config[model_field_name]["input_types"] = ["LanguageModel"]
