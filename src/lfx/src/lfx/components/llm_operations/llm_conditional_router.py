@@ -2,6 +2,7 @@ from typing import Any
 
 from lfx.base.models.unified_models import (
     apply_provider_variable_config_to_build_config,
+    clear_provider_specific_fields,
     get_language_model_options,
     get_llm,
     get_provider_for_model_name,
@@ -157,6 +158,8 @@ class SmartRouterComponent(Component):
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
+        else:
+            build_config = clear_provider_specific_fields(build_config)
 
         return build_config
 

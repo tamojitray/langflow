@@ -15,6 +15,7 @@ from lfx.base.agents.agent import LCToolsAgentComponent
 from lfx.base.agents.events import ExceptionWithMessageError
 from lfx.base.models.unified_models import (
     apply_provider_variable_config_to_build_config,
+    clear_provider_specific_fields,
     get_language_model_options,
     get_llm,
     get_provider_for_model_name,
@@ -503,6 +504,11 @@ class AgentComponent(ToolCallingAgentComponent):
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
+        else:
+            # When using connector mode (no provider selected), clear stale
+            # provider-specific fields (e.g. api_key="OPENAI_API_KEY" with
+            # load_from_db=True) left over from a previous provider selection.
+            build_config = clear_provider_specific_fields(build_config)
 
         if field_name == "model":
             default_keys = [

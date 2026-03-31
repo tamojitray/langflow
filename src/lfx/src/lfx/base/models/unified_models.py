@@ -292,6 +292,26 @@ def apply_provider_variable_config_to_build_config(
     return build_config
 
 
+def clear_provider_specific_fields(build_config: dict) -> dict:
+    """Clear all provider-specific fields in the build config.
+
+    Used when switching to connector mode (e.g. "Connect other models")
+    to remove stale values from a previous provider selection.  Without
+    this, fields like api_key may still reference a variable name such as
+    OPENAI_API_KEY with load_from_db=True, causing a "variable not found"
+    error at build time even though the connected model brings its own
+    credentials.
+    """
+    all_provider_fields = _get_all_provider_specific_field_names()
+    for field_name in all_provider_fields:
+        if field_name in build_config:
+            build_config[field_name]["show"] = False
+            build_config[field_name]["required"] = False
+            build_config[field_name]["value"] = ""
+            build_config[field_name]["load_from_db"] = False
+    return build_config
+
+
 def get_provider_config(provider: str) -> dict:
     """Get complete provider configuration.
 
@@ -1735,20 +1755,20 @@ def update_model_options_in_build_config(
                                 if isinstance(parsed_value, dict):
                                     return parsed_value.get("model_name"), parsed_value.get("provider")
                         except (ValueError, json.JSONDecodeError, TypeError):
-                            # Variable not found or invalid format
-                            logger.info(
-                                "Variable not found or invalid format: var_name=%s, user_id=%s, model_type=%s",
+                            # Variable not found or invalid format — expected when
+                            # the user has not configured a default model yet.
+                            logger.debug(
+                                "No default model variable set: var_name=%s, user_id=%s, model_type=%s",
                                 var_name,
                                 component.user_id,
                                 model_type,
-                                exc_info=True,
                             )
                         return None, None
 
                 default_model_name, default_model_provider = run_until_complete(_get_default_model())
             except Exception:  # noqa: BLE001
                 # If we can't get default model, continue without it
-                logger.info("Failed to get default model, continue without it", exc_info=True)
+                logger.debug("Failed to get default model, continue without it", exc_info=True)
 
             # Find the default model in options
             default_model = None

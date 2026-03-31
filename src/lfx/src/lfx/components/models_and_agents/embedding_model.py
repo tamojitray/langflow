@@ -4,6 +4,7 @@ from lfx.base.embeddings.embeddings_class import EmbeddingsWithModels
 from lfx.base.embeddings.model import LCEmbeddingsModel
 from lfx.base.models.unified_models import (
     apply_provider_variable_config_to_build_config,
+    clear_provider_specific_fields,
     get_api_key_for_provider,
     get_embedding_class,
     get_embedding_model_options,
@@ -62,6 +63,8 @@ class EmbeddingModelComponent(LCEmbeddingsModel):
                 build_config["truncate_input_tokens"]["show"] = is_watsonx
             if "input_text" in build_config:
                 build_config["input_text"]["show"] = is_watsonx
+        else:
+            build_config = clear_provider_specific_fields(build_config)
 
         return build_config
 

@@ -274,9 +274,14 @@ async def update_params_with_load_from_db_fields(
                     if "User id is not set" in str(e):
                         raise
                     if "variable not found." in str(e) and not fallback_to_env_vars:
-                        raise
-                    logger.debug(str(e))
-                    key = None
+                        logger.warning(
+                            f"Variable '{params[field]}' for field '{field}' not found in database. "
+                            "Setting to None. If this field is required, the component will report an error."
+                        )
+                        key = None
+                    else:
+                        logger.debug(str(e))
+                        key = None
 
                 if fallback_to_env_vars and key is None:
                     key = os.getenv(params[field])
