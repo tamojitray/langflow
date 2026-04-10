@@ -46,7 +46,20 @@ class SmartRouterComponent(Component):
             name="api_key",
             display_name="API Key",
             info="Model Provider API key",
-            real_time_refresh=True,
+            advanced=True,
+        ),
+        MessageTextInput(
+            name="azure_endpoint",
+            display_name="Azure OpenAI Endpoint",
+            info="The endpoint URL of the Azure OpenAI service (Azure OpenAI only)",
+            show=False,
+            advanced=True,
+        ),
+        MessageTextInput(
+            name="azure_deployment",
+            display_name="Azure OpenAI Deployment",
+            info="The deployment name for the Azure OpenAI service (Azure OpenAI only)",
+            show=False,
             advanced=True,
         ),
         MessageTextInput(
@@ -102,7 +115,6 @@ class SmartRouterComponent(Component):
                     "output_value": "",
                 },
             ],
-            real_time_refresh=True,
             required=True,
         ),
         MessageInput(
@@ -121,7 +133,6 @@ class SmartRouterComponent(Component):
             info="Include an Else output for cases that don't match any route.",
             value=False,
             advanced=True,
-            real_time_refresh=True,
         ),
         MultilineInput(
             name="custom_prompt",
@@ -137,61 +148,119 @@ class SmartRouterComponent(Component):
 
     outputs: list[Output] = []
 
-    def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):
+    def update_build_config(self, build_config: dict, field_value: Any, field_name: str | None = None):
         """Dynamically update build config with user-filtered model options."""
-        build_config = update_model_options_in_build_config(
-            component=self,
-            build_config=build_config,
-            cache_key_prefix="language_model_options",
-            get_options_func=get_language_model_options,
-            field_name=field_name,
-            field_value=field_value,
-        )
+        # Only update model options if relevant to prevent infinite loops on selection
+        if field_name == "model" or not build_config.get("model", {}).get("options"):
+            build_config = update_model_options_in_build_config(
+                component=self,
+                build_config=build_config,
+                cache_key_prefix="language_model_options",
+                get_options_func=get_language_model_options,
+                field_name=field_name,
+                field_value=field_value,
+            )
 
         current_model_value = field_value if field_name == "model" else build_config.get("model", {}).get("value")
         provider = ""
+
+        # Improved provider detection to be more resilient during reload
         if isinstance(current_model_value, list) and current_model_value:
             selected_model = current_model_value[0]
             provider = (selected_model.get("provider") or "").strip()
             if not provider and selected_model.get("name"):
                 provider = get_provider_for_model_name(str(selected_model["name"]))
+        elif isinstance(current_model_value, dict):
+            provider = (current_model_value.get("provider") or "").strip()
+            if not provider and current_model_value.get("name"):
+                provider = get_provider_for_model_name(str(current_model_value["name"]))
+        elif isinstance(current_model_value, str):
+            provider = get_provider_for_model_name(current_model_value)
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
-        else:
+        elif field_name == "model":
+            # Only clear if the user explicitly changed the model to something invalid
             build_config = clear_provider_specific_fields(build_config)
 
         return build_config
 
     def update_outputs(self, frontend_node: dict, field_name: str, field_value: Any) -> dict:
         """Create a dynamic output for each category in the categories table."""
-        if field_name in {"routes", "enable_else_output", "model"}:
-            frontend_node["outputs"] = []
+        # Get existing outputs from node template
+        old_outputs_list = frontend_node.get("outputs", [])
 
-            # Get the routes data - either from field_value (if routes field) or from component state
-            routes_data = field_value if field_name == "routes" else getattr(self, "routes", [])
+        # If this is a generic update (selected or refresh) and we already have outputs, return early.
+        # This breaks the selection loop.
+        if field_name not in {"routes", "enable_else_output"} and old_outputs_list:
+            return frontend_node
 
-            # Add a dynamic output for each category - all using the same method
-            for i, row in enumerate(routes_data):
-                route_category = row.get("route_category", f"Category {i + 1}")
-                frontend_node["outputs"].append(
-                    Output(
-                        display_name=route_category,
-                        name=f"category_{i + 1}_result",
-                        method="process_case",
-                        group_outputs=True,
-                    )
-                )
-            # Add default output only if enabled
-            if field_name == "enable_else_output":
-                enable_else = field_value
-            else:
-                enable_else = getattr(self, "enable_else_output", False)
+        # Preserve existing outputs state (dict of old outputs)
+        old_outputs = {out.get("name"): out for out in old_outputs_list}
 
-            if enable_else:
-                frontend_node["outputs"].append(
-                    Output(display_name="Else", name="default_result", method="default_response", group_outputs=True)
-                )
+        # Get the routes data - prioritize what's in the node template on first reload
+        routes_data = field_value if field_name == "routes" else getattr(self, "routes", [])
+        if not routes_data and "template" in frontend_node:
+            routes_data = frontend_node["template"].get("routes", {}).get("value", [])
+
+        # If we still have no routes, we use the default class outputs if any
+        if not routes_data:
+            return frontend_node
+
+        new_outputs = []
+        # Add a dynamic output for each category
+        for i, row in enumerate(routes_data):
+            route_category = row.get("route_category", f"Category {i + 1}")
+            output_name = f"category_{i + 1}_result"
+
+            new_output = Output(
+                display_name=route_category,
+                name=output_name,
+                method="process_case",
+                group_outputs=True,
+            )
+
+            # Restore state if output already existed (selected, hidden, value, etc.)
+            if output_name in old_outputs:
+                old_out = old_outputs[output_name]
+                for attr in ["selected", "hidden", "value", "types", "cache"]:
+                    if attr in old_out:
+                        setattr(new_output, attr, old_out[attr])
+
+            new_outputs.append(new_output)
+
+        # Add default output only if enabled
+        is_else_enabled = (
+            field_value if field_name == "enable_else_output" else getattr(self, "enable_else_output", False)
+        )
+        if is_else_enabled:
+            else_output_name = "default_result"
+            new_else_output = Output(
+                display_name="Else",
+                name=else_output_name,
+                method="default_response",
+                group_outputs=True,
+            )
+
+            if else_output_name in old_outputs:
+                old_else = old_outputs[else_output_name]
+                for attr in ["selected", "hidden", "value", "types", "cache"]:
+                    if attr in old_else:
+                        setattr(new_else_output, attr, old_else[attr])
+
+            new_outputs.append(new_else_output)
+
+        # Structural comparison to prevent loops
+        new_structural = [{"name": out.name, "display_name": out.display_name, "method": out.method} for out in new_outputs]
+        old_structural = [
+            {"name": out.get("name"), "display_name": out.get("display_name"), "method": out.get("method")}
+            for out in old_outputs_list
+        ]
+
+        if new_structural != old_structural:
+            # Only update node if there's a structural change
+            frontend_node["outputs"] = [out.to_dict() if hasattr(out, "to_dict") else out for out in new_outputs]
+
         return frontend_node
 
     def _get_categorization(self) -> str:
@@ -206,7 +275,13 @@ class SmartRouterComponent(Component):
 
         categories = getattr(self, "routes", [])
         input_text = getattr(self, "input_text", "")
-        llm = get_llm(model=self.model, user_id=self.user_id, api_key=self.api_key)
+        llm = get_llm(
+            model=self.model,
+            user_id=self.user_id,
+            api_key=self.api_key,
+            azure_endpoint=getattr(self, "azure_endpoint", None),
+            azure_deployment=getattr(self, "azure_deployment", None),
+        )
 
         if not llm or not categories:
             self.status = "No LLM provided for categorization"

@@ -485,17 +485,20 @@ class Settings(BaseSettings):
     @classmethod
     def set_langflow_dir(cls, value):
         if not value:
-            from platformdirs import user_cache_dir
+            from platformdirs import user_data_dir
 
             # Define the app name and author
             app_name = "langflow"
             app_author = "langflow"
 
-            # Get the cache directory for the application
-            cache_dir = user_cache_dir(app_name, app_author)
+            # Get the data directory for the application
+            # We use user_data_dir instead of user_cache_dir because it is more persistent.
+            # Cache directories can be cleared by the system or cleanup tools,
+            # which would cause the loss of the secret_key and prevent decryption of stored credentials.
+            data_dir = user_data_dir(app_name, app_author)
 
-            # Create a .langflow directory inside the cache directory
-            value = Path(cache_dir)
+            # Create a .langflow directory inside the data directory
+            value = Path(data_dir)
             value.mkdir(parents=True, exist_ok=True)
 
         if isinstance(value, str):

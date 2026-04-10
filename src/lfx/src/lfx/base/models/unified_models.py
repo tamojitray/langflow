@@ -18,6 +18,10 @@ from lfx.base.models.google_generative_ai_constants import (
     GOOGLE_GENERATIVE_AI_EMBEDDING_MODELS_DETAILED,
     GOOGLE_GENERATIVE_AI_MODELS_DETAILED,
 )
+from lfx.base.models.azure_constants import (
+    AZURE_OPENAI_EMBEDDING_MODELS_DETAILED,
+    AZURE_OPENAI_MODELS_DETAILED,
+)
 from lfx.base.models.model_metadata import (
     MODEL_PROVIDER_METADATA,
     get_provider_param_mapping,
@@ -49,6 +53,7 @@ _MODEL_CLASS_IMPORTS: dict[str, tuple[str, str, str | None]] = {
     ),
     "ChatOllama": ("langchain_ollama", "ChatOllama", None),
     "ChatWatsonx": ("langchain_ibm", "ChatWatsonx", None),
+    "AzureChatOpenAI": ("langchain_openai", "AzureChatOpenAI", None),
 }
 
 _EMBEDDING_CLASS_IMPORTS: dict[str, tuple[str, str, str | None]] = {
@@ -60,6 +65,7 @@ _EMBEDDING_CLASS_IMPORTS: dict[str, tuple[str, str, str | None]] = {
     ),
     "OllamaEmbeddings": ("langchain_ollama", "OllamaEmbeddings", None),
     "WatsonxEmbeddings": ("langchain_ibm", "WatsonxEmbeddings", None),
+    "AzureOpenAIEmbeddings": ("langchain_openai", "AzureOpenAIEmbeddings", None),
 }
 
 # Canonical mapping of provider name → embedding class name.
@@ -71,6 +77,7 @@ EMBEDDING_PROVIDER_CLASS_MAPPING: dict[str, str] = {
     "Ollama": "OllamaEmbeddings",
     "IBM WatsonX": "WatsonxEmbeddings",
     "IBM watsonx.ai": "WatsonxEmbeddings",  # Alias used by MODEL_PROVIDERS_DICT
+    "Azure OpenAI": "AzureOpenAIEmbeddings",
 }
 
 _model_class_cache: dict[str, type] = {}
@@ -185,6 +192,8 @@ def get_models_detailed():
         OLLAMA_MODELS_DETAILED,
         OLLAMA_EMBEDDING_MODELS_DETAILED,
         WATSONX_MODELS_DETAILED,
+        AZURE_OPENAI_MODELS_DETAILED,
+        AZURE_OPENAI_EMBEDDING_MODELS_DETAILED,
     ]
 
 
@@ -1452,6 +1461,8 @@ def get_llm(
     watsonx_url=None,
     watsonx_project_id=None,
     ollama_base_url=None,
+    azure_endpoint=None,
+    azure_deployment=None,
 ) -> Any:
     # Coerce provider-specific string params (Message/Data may leak through StrInput)
     ollama_base_url = _to_str(ollama_base_url)
@@ -1593,6 +1604,32 @@ def get_llm(
         )
         if ollama_base_url_value:
             kwargs[base_url_param] = ollama_base_url_value
+    elif provider == "Azure OpenAI":
+        # For Azure, endpoint and deployment are required
+        azure_endpoint_param = metadata.get("azure_endpoint_param", "azure_endpoint")
+        azure_deployment_param = metadata.get("azure_deployment_param", "azure_deployment")
+
+        provider_vars = get_all_variables_for_provider(user_id, provider)
+
+        azure_endpoint_value = (
+            azure_endpoint
+            if azure_endpoint
+            else provider_vars.get("AZURE_OPENAI_ENDPOINT") or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        )
+        azure_deployment_value = (
+            azure_deployment
+            if azure_deployment
+            else provider_vars.get("AZURE_OPENAI_DEPLOYMENT_NAME") or os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME")
+        )
+
+        if azure_endpoint_value:
+            kwargs[azure_endpoint_param] = azure_endpoint_value
+        if azure_deployment_value:
+            kwargs[azure_deployment_param] = azure_deployment_value
+
+        # AzureChatOpenAI often expects api_version as well
+        if "api_version" not in kwargs:
+            kwargs["api_version"] = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")
 
     try:
         return model_class(**kwargs)

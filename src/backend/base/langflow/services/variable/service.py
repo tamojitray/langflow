@@ -223,10 +223,13 @@ class DatabaseVariableService(VariableService, Service):
         for variable in variables:
             value = None
             if variable.type == GENERIC_TYPE:
-                value = auth_utils.decrypt_api_key(variable.value)
-                if not value:
-                    # If decryption fails (likely due to encryption by different key), skip this variable
-                    continue
+                # For GENERIC variables, we try to decrypt it if it was mistakenly encrypted,
+                # but if it fails or it is not encrypted, we keep the original value.
+                # We should NEVER skip the variable here.
+                try:
+                    value = auth_utils.decrypt_api_key(variable.value)
+                except Exception:  # noqa: BLE001
+                    value = variable.value
 
             # Model validate will set value to None if credential type
             variable_read = VariableRead.model_validate(variable, from_attributes=True)
@@ -257,18 +260,20 @@ class DatabaseVariableService(VariableService, Service):
 
         result = {}
         for var in variables:
-            if var.name and var.value:
+            if var.name:
                 try:
-                    decrypted_value = auth_utils.decrypt_api_key(var.value)
+                    # If var.value is None or empty, decrypt_api_key returns ""
+                    decrypted_value = auth_utils.decrypt_api_key(var.value or "")
+                    if not decrypted_value and var.value:
+                        # This happens if decryption failed and returned ""
+                        await logger.awarning(f"Decryption failed for variable '{var.name}' (different secret key?).")
+                    
+                    # We store it even if empty to avoid breaking components that might handle empty strings
+                    # but we don't store None.
+                    result[var.name] = decrypted_value if decrypted_value is not None else ""
                 except Exception as e:  # noqa: BLE001
-                    await logger.awarning(f"Decryption failed for variable '{var.name}': {e}. Skipping")
+                    await logger.awarning(f"Unexpected error decrypting variable '{var.name}': {e}")
                     continue
-
-                if not decrypted_value:
-                    await logger.awarning(f"Decryption returned empty for variable '{var.name}'. Skipping")
-                    continue
-
-                result[var.name] = decrypted_value
 
         return result
 

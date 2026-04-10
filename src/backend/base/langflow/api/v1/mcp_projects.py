@@ -1270,10 +1270,30 @@ class ProjectMCPServer:
     async def _run_session_manager(self, *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
         """Own the lifecycle of the project's Streamable HTTP session manager."""
         try:
-            async with self.session_manager.run():
-                self._manager_started = True  # set flag before unblocking task (ensures waiting requests proceed)
-                task_status.started()  # unblock
-                await anyio.sleep_forever()
+            # Use a loop to restart the manager if it crashes due to transient errors
+            # (e.g., ClosedResourceError during transportation closure)
+            max_crashes = 5
+            crash_count = 0
+            while crash_count < max_crashes:
+                try:
+                    async with self.session_manager.run():
+                        # The .run() context keeps the session manager alive
+                        if not self._manager_started:
+                            self._manager_started = True
+                            task_status.started()  # unblock waiter now that manager is running
+                        await anyio.sleep_forever()
+                except anyio.get_cancelled_exc_class():
+                    raise
+                except Exception as e:
+                    crash_count += 1
+                    await logger.awarning(
+                        f"MCP session manager for project {self.project_id} crashed (attempt {crash_count}): {e}"
+                    )
+                    if crash_count >= max_crashes:
+                        await logger.aerror(f"MCP session manager for project {self.project_id} exceeded max crashes")
+                        raise
+                    # Small delay before restart to avoid tight crash loops
+                    await anyio.sleep(1.0)
         except anyio.get_cancelled_exc_class():
             await logger.adebug(f"Streamable HTTP manager cancelled for project {self.project_id}")
         except Exception as e:

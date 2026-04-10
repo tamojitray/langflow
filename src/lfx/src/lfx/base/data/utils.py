@@ -21,8 +21,11 @@ from lfx.utils.async_helpers import run_until_complete
 # and have 100% to be completely readable
 TEXT_FILE_TYPES = [
     "csv",
+    "doc",
+    "docx",
     "json",
     "pdf",
+    "rtf",
     "txt",
     "md",
     "mdx",
@@ -31,7 +34,6 @@ TEXT_FILE_TYPES = [
     "xml",
     "html",
     "htm",
-    "docx",
     "py",
     "sh",
     "sql",
@@ -188,10 +190,69 @@ async def read_text_file_async(file_path: str) -> str:
     return raw_data.decode(encoding, errors="replace")
 
 
-def read_docx_file(file_path: str) -> str:
-    """Read a DOCX file and extract text.
+def _extract_docx_full_content(doc) -> str:
+    """Extract ALL content from a python-docx Document in reading order.
 
-    ote: python-docx requires a file path, so this only works with local files.
+    This walks the document body XML to yield paragraphs, tables, headers,
+    and footers in the order they appear.  Tables are rendered as
+    pipe-delimited Markdown-style tables so that their data is fully
+    captured in the text output.
+    """
+    from docx.table import Table as DocxTable
+    from docx.text.paragraph import Paragraph as DocxParagraph
+
+    parts: list[str] = []
+
+    # --- Helper: render a single table to markdown-style text ---------------
+    def _table_to_text(table) -> str:
+        rows_text: list[str] = []
+        for row in table.rows:
+            cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+            rows_text.append("| " + " | ".join(cells) + " |")
+        if len(rows_text) >= 1:
+            # Insert a header separator after the first row
+            col_count = len(table.rows[0].cells)
+            separator = "| " + " | ".join(["---"] * col_count) + " |"
+            rows_text.insert(1, separator)
+        return "\n".join(rows_text)
+
+    # --- Walk body elements in document order --------------------------------
+    # doc.element.body contains <w:p> (paragraph) and <w:tbl> (table) children.
+    for child in doc.element.body:
+        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        if tag == "p":
+            para = DocxParagraph(child, doc.element.body)
+            text = para.text.strip()
+            if text:
+                parts.append(text)
+        elif tag == "tbl":
+            table = DocxTable(child, doc.element.body)
+            rendered = _table_to_text(table)
+            if rendered:
+                parts.append(rendered)
+
+    # --- Extract headers and footers ----------------------------------------
+    for section in doc.sections:
+        for hf_attr in ("header", "first_page_header", "even_page_header",
+                        "footer", "first_page_footer", "even_page_footer"):
+            hf = getattr(section, hf_attr, None)
+            if hf is None or not hf.is_linked_to_previous:
+                continue
+            for para in hf.paragraphs:
+                text = para.text.strip()
+                if text:
+                    parts.append(text)
+
+    return "\n\n".join(parts)
+
+
+def read_docx_file(file_path: str) -> str:
+    """Read a DOCX file and extract ALL text including tables.
+
+    Uses _extract_docx_full_content to walk the XML body so that tables,
+    paragraphs, headers, and footers are all captured.
+
+    Note: python-docx requires a file path, so this only works with local files.
     For storage service files, use read_docx_file_async which downloads to temp.
 
     Args:
@@ -203,11 +264,108 @@ def read_docx_file(file_path: str) -> str:
     from docx import Document
 
     doc = Document(file_path)
-    return "\n\n".join([p.text for p in doc.paragraphs])
+    return _extract_docx_full_content(doc)
+
+
+def read_doc_file(file_path: str) -> str:
+    """Read a legacy .doc (Word 97-2003) file and extract text.
+
+    Tries multiple strategies:
+    1. ``textract`` (if installed) – most reliable on all platforms.
+    2. ``antiword`` via subprocess (common on Linux).
+    3. Falls back to reading raw bytes and stripping non-text.
+
+    Args:
+        file_path: Path to the .doc file (local path only)
+
+    Returns:
+        str: Extracted text from the document
+    """
+    # Strategy 1: textract
+    try:
+        import textract  # type: ignore[import-untyped]
+
+        raw = textract.process(file_path)
+        return raw.decode("utf-8", errors="replace")
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # Strategy 2: antiword (commonly available on Linux)
+    import subprocess  # noqa: S404
+
+    try:
+        result = subprocess.run(  # noqa: S603, S607
+            ["antiword", file_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    # Strategy 3: raw byte extraction (last resort – lossy)
+    import re
+
+    raw = Path(file_path).read_bytes()
+    # The .doc OLE2 format stores text between certain markers; strip control chars.
+    text = raw.decode("utf-8", errors="replace")
+    # Remove non-printable characters but keep newlines/tabs
+    text = re.sub(r"[^\x20-\x7E\n\r\t]", "", text)
+    # Collapse excessive whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if text.strip():
+        return text.strip()
+
+    msg = (
+        f"Could not extract text from legacy .doc file '{file_path}'. "
+        "Install 'textract' (pip install textract) or 'antiword' for .doc support, "
+        "or convert the file to .docx format."
+    )
+    raise ValueError(msg)
+
+
+def _read_rtf_file(file_path: str) -> str:
+    """Read an RTF file and extract plain text.
+
+    Tries ``striprtf`` first (pip install striprtf), then falls back to a
+    basic regex approach that strips RTF control words.
+
+    Args:
+        file_path: Path to the .rtf file
+
+    Returns:
+        str: Extracted plain text
+    """
+    import re as _re
+
+    raw = Path(file_path).read_bytes().decode("utf-8", errors="replace")
+
+    # Strategy 1: striprtf library
+    try:
+        from striprtf.striprtf import rtf_to_text  # type: ignore[import-untyped]
+
+        return rtf_to_text(raw)
+    except ImportError:
+        pass
+
+    # Strategy 2: basic regex stripping of RTF control codes
+    # Remove RTF groups like {\fonttbl ...}, {\colortbl ...}, etc.
+    text = _re.sub(r"\{\\[a-z]+[^}]*\}", "", raw)
+    # Remove RTF control words like \par, \b0, \fs24, etc.
+    text = _re.sub(r"\\[a-z]+\d*\s?", " ", text)
+    # Remove remaining braces
+    text = _re.sub(r"[{}]", "", text)
+    # Collapse whitespace
+    text = _re.sub(r"[ \t]+", " ", text)
+    text = _re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 async def read_docx_file_async(file_path: str) -> str:
-    """Read a DOCX file and extract text (async, storage-aware).
+    """Read a DOCX file and extract ALL text including tables (async, storage-aware).
 
     For S3 storage, downloads to temp file (python-docx requires file path).
     For local storage, reads directly.
@@ -227,7 +385,7 @@ async def read_docx_file_async(file_path: str) -> str:
     if settings.storage_type == "local":
         # Local storage - read directly
         doc = Document(file_path)
-        return "\n\n".join([p.text for p in doc.paragraphs])
+        return _extract_docx_full_content(doc)
 
     # S3 storage - need temp file for python-docx (doesn't support BytesIO)
     content = await read_file_bytes(file_path)
@@ -241,7 +399,7 @@ async def read_docx_file_async(file_path: str) -> str:
 
     try:
         doc = Document(temp_path)
-        return "\n\n".join([p.text for p in doc.paragraphs])
+        return _extract_docx_full_content(doc)
     finally:
         with contextlib.suppress(Exception):
             Path(temp_path).unlink()
@@ -250,7 +408,8 @@ async def read_docx_file_async(file_path: str) -> str:
 def extract_text_from_bytes(file_name: str, file_content: bytes) -> str:
     """Extract text from binary file content based on file extension.
 
-    Supports PDF (via pypdf), DOCX (via python-docx), and plain text files.
+    Supports PDF (via pypdf), DOCX (via python-docx with full table extraction),
+    and plain text files.
 
     Raises:
         ValueError: If the file content is corrupted or cannot be parsed.
@@ -268,7 +427,7 @@ def extract_text_from_bytes(file_name: str, file_content: bytes) -> str:
             from docx import Document
 
             doc = Document(BytesIO(file_content))
-            return "\n\n".join(p.text for p in doc.paragraphs)
+            return _extract_docx_full_content(doc)
         except Exception as e:
             msg = f"Failed to parse DOCX file '{file_name}': {e}"
             raise ValueError(msg) from e
@@ -314,6 +473,10 @@ def parse_text_file_to_data(file_path: str, *, silent_errors: bool) -> Data | No
             text = parse_pdf_to_text(file_path)
         elif file_path.endswith(".docx"):
             text = read_docx_file(file_path)
+        elif file_path.endswith(".doc"):
+            text = read_doc_file(file_path)
+        elif file_path.endswith(".rtf"):
+            text = _read_rtf_file(file_path)
         else:
             text = read_text_file(file_path)
 
@@ -340,6 +503,11 @@ async def parse_text_file_to_data_async(file_path: str, *, silent_errors: bool) 
             text = await parse_pdf_to_text_async(file_path)
         elif file_path.endswith(".docx"):
             text = await read_docx_file_async(file_path)
+        elif file_path.endswith(".doc"):
+            # .doc files always need a local path; download from storage if needed
+            text = read_doc_file(file_path)
+        elif file_path.endswith(".rtf"):
+            text = _read_rtf_file(file_path)
         else:
             # Text files - read directly, no temp file needed
             text = await read_text_file_async(file_path)

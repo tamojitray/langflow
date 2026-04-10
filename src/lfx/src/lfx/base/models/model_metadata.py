@@ -47,7 +47,7 @@ def create_model_metadata(
     )
 
 
-LIVE_MODEL_PROVIDERS: list[str] = ["Ollama", "IBM WatsonX"]
+LIVE_MODEL_PROVIDERS: list[str] = ["Ollama", "IBM WatsonX", "Azure OpenAI"]
 
 # Provider metadata configuration
 # Defines the variables (credentials, URLs, etc.) required for each model provider
@@ -67,6 +67,7 @@ LIVE_MODEL_PROVIDERS: list[str] = ["Ollama", "IBM WatsonX"]
 #   - required: Whether the variable is required in components (False = falls back to env var)
 #   - advanced: Whether to show the variable in the advanced section of components
 #   - info: Help text/description shown in the component input
+#
 #
 MODEL_PROVIDER_METADATA: dict[str, Any] = {
     "OpenAI": {
@@ -90,6 +91,62 @@ MODEL_PROVIDER_METADATA: dict[str, Any] = {
             }
         ],
         "api_docs_url": "https://platform.openai.com/docs/overview",
+        "mapping": {
+            "model_class": "ChatOpenAI",
+            "model_param": "model",
+        },
+    },
+    "Azure OpenAI": {
+        "icon": "Azure",
+        "max_tokens_field_name": "max_tokens",
+        "variables": [
+            {
+                "variable_name": "Azure OpenAI API Key",
+                "variable_key": "AZURE_OPENAI_API_KEY",
+                "required": True,
+                "is_secret": True,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "api_key",
+                "component_metadata": {
+                    "mapping_field": "api_key",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to AZURE_OPENAI_API_KEY environment variable",
+                },
+            },
+            {
+                "variable_name": "Azure OpenAI Endpoint",
+                "variable_key": "AZURE_OPENAI_ENDPOINT",
+                "required": True,
+                "is_secret": False,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "azure_endpoint",
+                "component_metadata": {
+                    "mapping_field": "azure_endpoint",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to AZURE_OPENAI_ENDPOINT environment variable",
+                },
+            },
+            {
+                "variable_name": "Azure OpenAI Deployment Name",
+                "variable_key": "AZURE_OPENAI_DEPLOYMENT_NAME",
+                "required": True,
+                "is_secret": False,
+                "is_list": False,
+                "options": [],
+                "langchain_param": "azure_deployment",
+                "component_metadata": {
+                    "mapping_field": "azure_deployment",
+                    "required": False,
+                    "advanced": True,
+                    "info": "Falls back to AZURE_OPENAI_DEPLOYMENT_NAME environment variable",
+                },
+            },
+        ],
+        "api_docs_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/chatgpt-quickstart",
         "mapping": {
             "model_class": "ChatOpenAI",
             "model_param": "model",

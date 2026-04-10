@@ -63,7 +63,20 @@ class AgentComponent(ToolCallingAgentComponent):
             name="api_key",
             display_name="API Key",
             info="Model Provider API key",
-            real_time_refresh=True,
+            advanced=True,
+        ),
+        MessageTextInput(
+            name="azure_endpoint",
+            display_name="Azure OpenAI Endpoint",
+            info="The endpoint URL of the Azure OpenAI service (Azure OpenAI only)",
+            show=False,
+            advanced=True,
+        ),
+        MessageTextInput(
+            name="azure_deployment",
+            display_name="Azure OpenAI Deployment",
+            info="The deployment name for the Azure OpenAI service (Azure OpenAI only)",
+            show=False,
             advanced=True,
         ),
         DropdownInput(
@@ -73,7 +86,6 @@ class AgentComponent(ToolCallingAgentComponent):
             options=IBM_WATSONX_URLS,
             value=IBM_WATSONX_URLS[0],
             show=False,
-            real_time_refresh=True,
         ),
         StrInput(
             name="project_id",
@@ -201,6 +213,8 @@ class AgentComponent(ToolCallingAgentComponent):
             user_id=self.user_id,
             api_key=getattr(self, "api_key", None),
             max_tokens=self._get_max_tokens_value(),
+            azure_endpoint=getattr(self, "azure_endpoint", None),
+            azure_deployment=getattr(self, "azure_deployment", None),
             watsonx_url=getattr(self, "base_url_ibm_watsonx", None),
             watsonx_project_id=getattr(self, "project_id", None),
         )
@@ -481,14 +495,16 @@ class AgentComponent(ToolCallingAgentComponent):
         def get_tool_calling_model_options(user_id=None):
             return get_language_model_options(user_id=user_id, tool_calling=True)
 
-        build_config = update_model_options_in_build_config(
-            component=self,
-            build_config=dict(build_config),
-            cache_key_prefix="language_model_options_tool_calling",
-            get_options_func=get_tool_calling_model_options,
-            field_name=field_name,
-            field_value=field_value,
-        )
+        # Only update model options if relevant to prevent infinite loops on selection
+        if field_name == "model" or not build_config.get("model", {}).get("options"):
+            build_config = update_model_options_in_build_config(
+                component=self,
+                build_config=dict(build_config),
+                cache_key_prefix="language_model_options_tool_calling",
+                get_options_func=get_tool_calling_model_options,
+                field_name=field_name,
+                field_value=field_value,
+            )
         build_config = dotdict(build_config)
 
         if field_name == "model":
@@ -496,18 +512,24 @@ class AgentComponent(ToolCallingAgentComponent):
 
         current_model_value = field_value if field_name == "model" else build_config.get("model", {}).get("value")
         provider = ""
+
+        # Improved provider detection to be more resilient during reload
         if isinstance(current_model_value, list) and current_model_value:
             selected_model = current_model_value[0]
             provider = (selected_model.get("provider") or "").strip()
             if not provider and selected_model.get("name"):
                 provider = get_provider_for_model_name(str(selected_model["name"]))
+        elif isinstance(current_model_value, dict):
+            provider = (current_model_value.get("provider") or "").strip()
+            if not provider and current_model_value.get("name"):
+                provider = get_provider_for_model_name(str(current_model_value["name"]))
+        elif isinstance(current_model_value, str):
+            provider = get_provider_for_model_name(current_model_value)
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
-        else:
-            # When using connector mode (no provider selected), clear stale
-            # provider-specific fields (e.g. api_key="OPENAI_API_KEY" with
-            # load_from_db=True) left over from a previous provider selection.
+        elif field_name == "model":
+            # Only clear if the user explicitly changed the model to something invalid
             build_config = clear_provider_specific_fields(build_config)
 
         if field_name == "model":

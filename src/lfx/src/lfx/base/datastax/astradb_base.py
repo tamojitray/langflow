@@ -20,6 +20,19 @@ from lfx.log.logger import logger
 class AstraDBBaseComponent(Component):
     """Base class for AstraDB components with common functionality."""
 
+    def _get_text(self, value: Any) -> str:
+        """Helper to extract text from a string, Message, or Data object."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if hasattr(value, "get_text") and callable(value.get_text):
+            return value.get_text()
+        if hasattr(value, "text"):
+            result = value.text
+            return str(result) if result is not None else ""
+        return str(value)
+
     @dataclass
     class NewDatabaseInput:
         functionality: str = "create"
@@ -139,16 +152,19 @@ class AstraDBBaseComponent(Component):
             display_name="Database",
             info="The Database name for the Astra DB instance.",
             required=True,
-            refresh_button=True,
             real_time_refresh=True,
             dialog_inputs=asdict(NewDatabaseInput()),
             combobox=True,
+            input_types=["Message"],
+            refresh_button=True,
         ),
         DropdownInput(
             name="api_endpoint",
             display_name="Astra DB API Endpoint",
             info="The API Endpoint for the Astra DB instance. Supercedes database selection.",
             advanced=True,
+            combobox=True,
+            input_types=["Message"],
         ),
         DropdownInput(
             name="keyspace",
@@ -157,17 +173,20 @@ class AstraDBBaseComponent(Component):
             advanced=True,
             options=[],
             real_time_refresh=True,
+            combobox=True,
+            input_types=["Message"],
         ),
         DropdownInput(
             name="collection_name",
             display_name="Collection",
             info="The name of the collection within Astra DB where the vectors will be stored.",
             required=True,
-            refresh_button=True,
             real_time_refresh=True,
             dialog_inputs=asdict(NewCollectionInput()),
             combobox=True,
+            input_types=["Message"],
             show=False,
+            refresh_button=True,
         ),
         BoolInput(
             name="autodetect_collection",
@@ -380,8 +399,8 @@ class AstraDBBaseComponent(Component):
 
     def get_database_list(self):
         return self.get_database_list_static(
-            token=self.token,
-            environment=self.environment,
+            token=self._get_text(self.token),
+            environment=self._get_text(self.environment),
         )
 
     @classmethod
@@ -416,10 +435,10 @@ class AstraDBBaseComponent(Component):
 
     def get_api_endpoint(self):
         return self.get_api_endpoint_static(
-            token=self.token,
-            environment=self.environment,
-            api_endpoint=self.api_endpoint,
-            database_name=self.database_name,
+            token=self._get_text(self.token),
+            environment=self._get_text(self.environment),
+            api_endpoint=self._get_text(self.api_endpoint),
+            database_name=self._get_text(self.database_name),
         )
 
     @classmethod
@@ -434,7 +453,7 @@ class AstraDBBaseComponent(Component):
         return self.get_database_id_static(api_endpoint=self.get_api_endpoint())
 
     def get_keyspace(self):
-        keyspace = self.keyspace
+        keyspace = self._get_text(self.keyspace)
 
         if keyspace:
             return keyspace.strip()
@@ -443,12 +462,12 @@ class AstraDBBaseComponent(Component):
 
     def get_database_object(self, api_endpoint: str | None = None):
         try:
-            client = DataAPIClient(environment=self.environment)
+            client = DataAPIClient(environment=self._get_text(self.environment))
 
             return client.get_database(
-                api_endpoint or self.get_api_endpoint(),
-                token=self.token,
-                keyspace=self.get_keyspace(),
+                api_endpoint or self._get_text(self.get_api_endpoint()),
+                token=self._get_text(self.token),
+                keyspace=self._get_text(self.get_keyspace()),
             )
         except Exception as e:
             msg = f"Error fetching database object: {e}"
@@ -461,8 +480,8 @@ class AstraDBBaseComponent(Component):
 
                 database = client.get_database(
                     self.get_api_endpoint(),
-                    token=self.token,
-                    keyspace=self.get_keyspace(),
+                    token=self._get_text(self.token),
+                    keyspace=self._get_text(self.get_keyspace()),
                 )
 
             collection = database.get_collection(collection_name)
@@ -566,8 +585,8 @@ class AstraDBBaseComponent(Component):
 
         # Get vectorize providers
         vectorize_providers_api = self.get_vectorize_providers(
-            token=self.token,
-            environment=self.environment,
+            token=self._get_text(self.token),
+            environment=self._get_text(self.environment),
             api_endpoint=build_config["api_endpoint"]["value"],
         )
 
@@ -666,8 +685,8 @@ class AstraDBBaseComponent(Component):
         template = build_config["database_name"]["dialog_inputs"]["fields"]["data"]["node"]["template"]
         template["02_cloud_provider"]["options"] = list(
             self.map_cloud_providers(
-                token=self.token,
-                environment=self.environment,
+                token=self._get_text(self.token),
+                environment=self._get_text(self.environment),
             ).keys()
         )
 
@@ -688,7 +707,7 @@ class AstraDBBaseComponent(Component):
             build_config["collection_name"]["show"] = False
 
         # Set advanced status based on token presence
-        database_config["show"] = bool(build_config["token"]["value"])
+        database_config["show"] = bool(self._get_text(self.token))
 
         return build_config
 
@@ -713,9 +732,17 @@ class AstraDBBaseComponent(Component):
         field_name: str | None = None,
     ) -> dict:
         """Update build configuration based on field name and value."""
-        # Early return if no token provided
-        if not self.token:
-            return self.reset_build_config(build_config)
+        # Sync critical inputs to ensure helper methods use current UI values
+        if "token" in build_config:
+            self._inputs["token"].value = build_config["token"]["value"]
+        if "environment" in build_config:
+            self._inputs["environment"].value = build_config["environment"]["value"]
+
+        # Early return if no token provided - only reset if user explicitly cleared it
+        if not self._get_text(self.token):
+            if field_name == "token":
+                return self.reset_build_config(build_config)
+            return build_config
 
         # Database creation callback
         if field_name == "database_name" and isinstance(field_value, dict):
@@ -763,9 +790,9 @@ class AstraDBBaseComponent(Component):
         try:
             await self.create_database_api(
                 new_database_name=field_value["01_new_database_name"],
-                token=self.token,
-                keyspace=self.get_keyspace(),
-                environment=self.environment,
+                token=self._get_text(self.token),
+                keyspace=self._get_text(self.get_keyspace()),
+                environment=self._get_text(self.environment),
                 cloud_provider=field_value["02_cloud_provider"],
                 region=field_value["03_region"],
             )
@@ -791,8 +818,8 @@ class AstraDBBaseComponent(Component):
         # Update the region options based on the selected cloud provider
         template = build_config["database_name"]["dialog_inputs"]["fields"]["data"]["node"]["template"]
         template["03_region"]["options"] = self.map_cloud_providers(
-            token=self.token,
-            environment=self.environment,
+            token=self._get_text(self.token),
+            environment=self._get_text(self.environment),
         )[cloud_provider]["regions"]
 
         # Reset the the 03_region value if it's not in the new options
@@ -807,10 +834,10 @@ class AstraDBBaseComponent(Component):
         try:
             await self.create_collection_api(
                 new_collection_name=field_value["01_new_collection_name"],
-                token=self.token,
+                token=self._get_text(self.token),
                 api_endpoint=build_config["api_endpoint"]["value"],
-                environment=self.environment,
-                keyspace=self.get_keyspace(),
+                environment=self._get_text(self.environment),
+                keyspace=self._get_text(self.get_keyspace()),
                 dimension=field_value.get("04_dimension") if embedding_provider == "Bring your own" else None,
                 embedding_generation_provider=embedding_provider,
                 embedding_generation_model=field_value.get("03_embedding_generation_model"),

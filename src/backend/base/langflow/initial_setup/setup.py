@@ -732,6 +732,11 @@ async def get_all_flows_similar_to_project(session: AsyncSession, folder_id: UUI
 async def delete_starter_projects(session, folder_id) -> None:
     flows = await get_all_flows_similar_to_project(session, folder_id)
     for flow in flows:
+        # If the flow has been modified by the user (updated_at > created_at), don't delete it
+        created_at = getattr(flow, "created_at", None)
+        if flow.updated_at and created_at and flow.updated_at > created_at:
+            await logger.adebug(f"Skipping deletion of user-modified starter project: {flow.name}")
+            continue
         await session.delete(flow)
 
 

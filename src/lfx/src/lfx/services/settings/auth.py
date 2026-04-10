@@ -183,9 +183,24 @@ class AuthSettings(BaseSettings):
                 write_secret_to_file(secret_key_path, value)
                 logger.debug("Saved secret key")
         else:
-            value = secrets.token_urlsafe(32)
-            write_secret_to_file(secret_key_path, value)
-            logger.debug("Saved secret key")
+            # Check for legacy secret key in cache directory (migration)
+            try:
+                from platformdirs import user_cache_dir
+
+                legacy_config_dir = Path(user_cache_dir("langflow", "langflow"))
+                legacy_secret_path = legacy_config_dir / "secret_key"
+                if legacy_secret_path.exists():
+                    value = read_secret_from_file(legacy_secret_path)
+                    if value:
+                        write_secret_to_file(secret_key_path, value)
+                        logger.info(f"Migrated secret key from {legacy_secret_path} to {secret_key_path}")
+            except Exception as e:
+                logger.debug(f"Failed to migrate legacy secret key: {e}")
+
+            if not value:
+                value = secrets.token_urlsafe(32)
+                write_secret_to_file(secret_key_path, value)
+                logger.debug("Saved secret key")
 
         return value if isinstance(value, SecretStr) else SecretStr(value).get_secret_value()
 

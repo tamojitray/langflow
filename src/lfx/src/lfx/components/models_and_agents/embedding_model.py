@@ -48,11 +48,19 @@ class EmbeddingModelComponent(LCEmbeddingsModel):
 
         current_model_value = field_value if field_name == "model" else build_config.get("model", {}).get("value")
         provider = ""
+
+        # Improved provider detection to be more resilient during reload
         if isinstance(current_model_value, list) and current_model_value:
             selected_model = current_model_value[0]
             provider = (selected_model.get("provider") or "").strip()
             if not provider and selected_model.get("name"):
                 provider = get_provider_for_model_name(str(selected_model["name"]))
+        elif isinstance(current_model_value, dict):
+            provider = (current_model_value.get("provider") or "").strip()
+            if not provider and current_model_value.get("name"):
+                provider = get_provider_for_model_name(str(current_model_value["name"]))
+        elif isinstance(current_model_value, str):
+            provider = get_provider_for_model_name(current_model_value)
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
@@ -63,7 +71,8 @@ class EmbeddingModelComponent(LCEmbeddingsModel):
                 build_config["truncate_input_tokens"]["show"] = is_watsonx
             if "input_text" in build_config:
                 build_config["input_text"]["show"] = is_watsonx
-        else:
+        elif field_name == "model":
+            # Only clear if the user explicitly changed the model to something invalid
             build_config = clear_provider_specific_fields(build_config)
 
         return build_config

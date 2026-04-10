@@ -31,10 +31,10 @@ class AstraDBChatMemory(AstraDBBaseComponent, LCChatMemoryComponent):
             raise ImportError(msg) from e
 
         return AstraDBChatMessageHistory(
-            session_id=self.session_id,
-            collection_name=self.collection_name,
-            token=self.token,
+            session_id=self._get_text(self.session_id),
+            collection_name=self._get_text(self.collection_name),
+            token=self._get_text(self.token),
             api_endpoint=self.get_api_endpoint(),
             namespace=self.get_keyspace(),
-            environment=self.environment,
+            environment=self._get_text(self.environment),
         )

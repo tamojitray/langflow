@@ -237,10 +237,10 @@ class AstraDBVectorStoreComponent(AstraDBBaseComponent, LCVectorStoreComponent):
 
     def _detect_hybrid_capabilities(self) -> dict:
         """Detect available hybrid search and reranking capabilities."""
-        environment = self.get_environment(self.environment)
+        environment = self.get_environment(self._get_text(self.environment))
         client = DataAPIClient(environment=environment)
         admin_client = client.get_admin()
-        db_admin = admin_client.get_database_admin(self.get_api_endpoint(), token=self.token)
+        db_admin = admin_client.get_database_admin(self.get_api_endpoint(), token=self._get_text(self.token))
 
         try:
             providers = db_admin.find_reranking_providers()
@@ -307,18 +307,19 @@ class AstraDBVectorStoreComponent(AstraDBBaseComponent, LCVectorStoreComponent):
 
         # Get the database object
         database = self.get_database_object()
-        autodetect = self.collection_name in database.list_collection_names() and self.autodetect_collection
+        collection_name_str = self._get_text(self.collection_name)
+        autodetect = collection_name_str in database.list_collection_names() and self.autodetect_collection
 
         # Bundle up the auto-detect parameters
         autodetect_params = {
             "autodetect_collection": autodetect,
             "content_field": (
-                self.content_field
+                self._get_text(self.content_field)
                 if self.content_field and embedding_params
                 else (
                     "page_content"
                     if embedding_params
-                    and self.collection_data(collection_name=self.collection_name, database=database) == 0
+                    and self.collection_data(collection_name=self._get_text(self.collection_name), database=database) == 0
                     else None
                 )
             ),
@@ -332,11 +333,11 @@ class AstraDBVectorStoreComponent(AstraDBBaseComponent, LCVectorStoreComponent):
         try:
             vector_store = AstraDBVectorStore(
                 # Astra DB Authentication Parameters
-                token=self.token,
+                token=self._get_text(self.token),
                 api_endpoint=database.api_endpoint,
                 namespace=database.keyspace,
-                collection_name=self.collection_name,
-                environment=self.environment,
+                collection_name=self._get_text(self.collection_name),
+                environment=self._get_text(self.environment),
                 # Hybrid Search Parameters
                 hybrid_search=hybrid_search_mode,
                 # Astra DB Usage Tracking Parameters
@@ -374,12 +375,12 @@ class AstraDBVectorStoreComponent(AstraDBBaseComponent, LCVectorStoreComponent):
             self.log(f"Deleting documents where {self.deletion_field}")
             try:
                 database = self.get_database_object()
-                collection = database.get_collection(self.collection_name, keyspace=database.keyspace)
+                collection = database.get_collection(self._get_text(self.collection_name), keyspace=database.keyspace)
                 delete_values = list({doc.metadata[self.deletion_field] for doc in documents})
                 self.log(f"Deleting documents where {self.deletion_field} matches {delete_values}.")
                 collection.delete_many({f"metadata.{self.deletion_field}": {"$in": delete_values}})
             except ValueError as e:
-                msg = f"Error deleting documents from AstraDBVectorStore based on '{self.deletion_field}': {e}"
+                msg = f"Error deleting documents from AstraDBVectorStore based on '{self._get_text(self.deletion_field)}': {e}"
                 raise ValueError(msg) from e
 
         if documents:
@@ -402,8 +403,9 @@ class AstraDBVectorStoreComponent(AstraDBBaseComponent, LCVectorStoreComponent):
 
     def _build_search_args(self):
         # Clean up the search query
-        query = self.search_query if isinstance(self.search_query, str) and self.search_query.strip() else None
-        lexical_terms = self.lexical_terms or None
+        query_str = self._get_text(self.search_query)
+        query = query_str if query_str.strip() else None
+        lexical_terms = self._get_text(self.lexical_terms) if self.lexical_terms else None
 
         # Check if we have a search query, and if so set the args
         if query:
@@ -430,12 +432,13 @@ class AstraDBVectorStoreComponent(AstraDBBaseComponent, LCVectorStoreComponent):
     def search_documents(self, vector_store=None) -> list[Data]:
         vector_store = vector_store or self.build_vector_store()
 
-        self.log(f"Search input: {self.search_query}")
+        self.log(f"Search input: {self._get_text(self.search_query)}")
+        self.status = f"Search input: {self._get_text(self.search_query)}"
         self.log(f"Search type: {self.search_type}")
         self.log(f"Number of results: {self.number_of_results}")
         self.log(f"store.hybrid_search: {vector_store.hybrid_search}")
-        self.log(f"Lexical terms: {self.lexical_terms}")
-        self.log(f"Reranker: {self.reranker}")
+        self.log(f"Lexical terms: {self._get_text(self.lexical_terms)}")
+        self.log(f"Reranker: {self._get_text(self.reranker)}")
 
         try:
             search_args = self._build_search_args()

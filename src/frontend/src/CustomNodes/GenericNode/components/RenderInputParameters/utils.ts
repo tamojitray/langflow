@@ -42,7 +42,7 @@ export const computeDisplayHandle = (
     (!LANGFLOW_SUPPORTED_TYPES.has(type ?? "") ||
       (optionalHandle && optionalHandle.length > 0)) &&
     !(isToolMode && template.tool_mode) &&
-    !hasRefreshButton
+    (!hasRefreshButton || (optionalHandle && optionalHandle.length > 0))
   );
 };
 

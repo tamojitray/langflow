@@ -132,6 +132,29 @@ class TestExtractTextFromBytesDOCX:
         result = extract_text_from_bytes("empty_doc.docx", buf.getvalue())
         assert isinstance(result, str)
 
+    def test_should_extract_table_content_from_docx(self):
+        from docx import Document
+
+        doc = Document()
+        doc.add_paragraph("Before table")
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Name"
+        table.cell(0, 1).text = "Value"
+        table.cell(1, 0).text = "Alpha"
+        table.cell(1, 1).text = "100"
+        doc.add_paragraph("After table")
+        buf = BytesIO()
+        doc.save(buf)
+
+        result = extract_text_from_bytes("with_table.docx", buf.getvalue())
+        assert "Before table" in result
+        assert "After table" in result
+        # Table content must be present (was missing with old paragraph-only method)
+        assert "Name" in result
+        assert "Value" in result
+        assert "Alpha" in result
+        assert "100" in result
+
 
 class TestExtractTextFromBytesPlainText:
     def test_should_decode_utf8_text(self):

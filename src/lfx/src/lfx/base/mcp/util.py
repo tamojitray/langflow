@@ -579,8 +579,8 @@ class MCPSessionManager:
         """Validate that the session is actually usable by testing a simple operation."""
         try:
             # Try to list tools as a connectivity test (this is a lightweight operation)
-            # Use a shorter timeout for the connectivity test to fail fast
-            response = await asyncio.wait_for(session.list_tools(), timeout=3.0)
+            # Use a slightly longer timeout for the connectivity test to be more robust under load
+            response = await asyncio.wait_for(session.list_tools(), timeout=10.0)
         except (asyncio.TimeoutError, ConnectionError, OSError, ValueError) as e:
             await logger.adebug(f"Session connectivity test failed (standard error): {e}")
             return False
@@ -642,17 +642,41 @@ class MCPSessionManager:
             # Check if session is still alive
             if not task.done():
                 # Update last used time
-                session_info["last_used"] = asyncio.get_event_loop().time()
+                now = asyncio.get_event_loop().time()
+                session_info["last_used"] = now
 
-                # Quick health check
-                if await self._validate_session_connectivity(session):
-                    await logger.adebug(f"Reusing existing session {session_id} for server {server_key}")
+                # Quick health check with thundering herd protection
+                # Skip health check if it was performed successfully in the last 5 seconds
+                last_health_check = session_info.get("last_health_check", 0)
+                if now - last_health_check < 5.0:
+                    await logger.adebug(f"Reusing session {session_id} (recently verified)")
                     # record mapping & bump ref-count for backwards compatibility
                     self._context_to_session[context_id] = (server_key, session_id)
                     self._session_refcount[(server_key, session_id)] = (
                         self._session_refcount.get((server_key, session_id), 0) + 1
                     )
                     return session
+
+                # Use a lock to ensure only one health check runs at a time for this session
+                if "health_check_lock" not in session_info:
+                    session_info["health_check_lock"] = asyncio.Lock()
+
+                async with session_info["health_check_lock"]:
+                    # Re-check last_health_check inside the lock
+                    now = asyncio.get_event_loop().time()
+                    if now - session_info.get("last_health_check", 0) < 5.0:
+                        return session
+
+                    if await self._validate_session_connectivity(session):
+                        await logger.adebug(f"Reusing existing session {session_id} for server {server_key}")
+                        session_info["last_health_check"] = now
+                        # record mapping & bump ref-count for backwards compatibility
+                        self._context_to_session[context_id] = (server_key, session_id)
+                        self._session_refcount[(server_key, session_id)] = (
+                            self._session_refcount.get((server_key, session_id), 0) + 1
+                        )
+                        return session
+
                 await logger.ainfo(f"Session {session_id} for server {server_key} failed health check, cleaning up")
                 await self._cleanup_session_by_id(server_key, session_id)
             else:
@@ -688,12 +712,14 @@ class MCPSessionManager:
             msg = f"Unknown transport type: {transport_type}"
             raise ValueError(msg)
 
-        # Store session info with the actual transport used
+        # Store session info with the actual transport used and health check state
         sessions[session_id] = {
             "session": session,
             "task": task,
             "type": actual_transport,
             "last_used": asyncio.get_event_loop().time(),
+            "last_health_check": asyncio.get_event_loop().time(),
+            "health_check_lock": asyncio.Lock(),
         }
 
         # register mapping & initial ref-count for the new session

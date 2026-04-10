@@ -1,7 +1,9 @@
 from typing import TYPE_CHECKING, Any
 
 from langchain_community.utilities import SQLDatabase
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+
 
 from lfx.custom.custom_component.component_with_cache import ComponentWithCache
 from lfx.io import BoolInput, MessageTextInput, MultilineInput, Output
@@ -87,9 +89,14 @@ class SQLComponent(ComponentWithCache):
     def __execute_query(self) -> list[dict[str, Any]]:
         self.maybe_create_db()
         try:
-            cursor: Result[Any] = self.db.run(self.query, fetch="cursor")
-            return [x._asdict() for x in cursor.fetchall()]
-        except SQLAlchemyError as e:
+            # We bypass self.db.run(..., fetch="cursor") because it may close the connection
+            # prematurely before fetchall() is called, triggering HY010 in pyodbc.
+            with self.db._engine.connect() as connection:
+                result = connection.execute(text(self.query))
+                # For SQLAlchemy 2.0+, row._mapping provides a dict-like interface
+                # For older versions, row._asdict() is common. Using as_dict check or _mapping.
+                return [dict(row._mapping) for row in result.fetchall()]
+        except Exception as e:
             msg = f"An error occurred while running the SQL Query: {e}"
             self.log(msg)
             raise ValueError(msg) from e

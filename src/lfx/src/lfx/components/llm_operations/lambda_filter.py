@@ -69,7 +69,6 @@ class LambdaFilterComponent(Component):
             name="api_key",
             display_name="API Key",
             info="Model Provider API key",
-            real_time_refresh=True,
             advanced=True,
         ),
         MultilineInput(
@@ -119,26 +118,37 @@ class LambdaFilterComponent(Component):
 
     def update_build_config(self, build_config: dict, field_value: str, field_name: str | None = None):
         """Dynamically update build config with user-filtered model options."""
-        build_config = update_model_options_in_build_config(
-            component=self,
-            build_config=build_config,
-            cache_key_prefix="language_model_options",
-            get_options_func=get_language_model_options,
-            field_name=field_name,
-            field_value=field_value,
-        )
+        # Only update model options if relevant to prevent infinite loops on selection
+        if field_name == "model" or not build_config.get("model", {}).get("options"):
+            build_config = update_model_options_in_build_config(
+                component=self,
+                build_config=build_config,
+                cache_key_prefix="language_model_options",
+                get_options_func=get_language_model_options,
+                field_name=field_name,
+                field_value=field_value,
+            )
 
         current_model_value = field_value if field_name == "model" else build_config.get("model", {}).get("value")
         provider = ""
+
+        # Improved provider detection to be more resilient during reload
         if isinstance(current_model_value, list) and current_model_value:
             selected_model = current_model_value[0]
             provider = (selected_model.get("provider") or "").strip()
             if not provider and selected_model.get("name"):
                 provider = get_provider_for_model_name(str(selected_model["name"]))
+        elif isinstance(current_model_value, dict):
+            provider = (current_model_value.get("provider") or "").strip()
+            if not provider and current_model_value.get("name"):
+                provider = get_provider_for_model_name(str(current_model_value["name"]))
+        elif isinstance(current_model_value, str):
+            provider = get_provider_for_model_name(current_model_value)
 
         if provider:
             build_config = apply_provider_variable_config_to_build_config(build_config, provider)
-        else:
+        elif field_name == "model":
+            # Only clear if the user explicitly changed the model to something invalid
             build_config = clear_provider_specific_fields(build_config)
 
         return build_config
