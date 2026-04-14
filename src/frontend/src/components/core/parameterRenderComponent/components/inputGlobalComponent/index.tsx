@@ -51,18 +51,32 @@ export default function InputGlobalComponent({
     typedGlobalVariables,
     valueExists,
     unavailableField,
+    currentValue,
     handleOnNewValue,
   );
 
   // Clean up when selected variable no longer exists
   useEffect(() => {
-    if (loadFromDb && currentValue && !valueExists && !isDisabled) {
+    if (
+      globalVariables.length > 0 &&
+      loadFromDb &&
+      currentValue &&
+      !valueExists &&
+      !isDisabled
+    ) {
       handleOnNewValue(
-        { value: "", load_from_db: false },
+        { value: currentValue, load_from_db: false },
         { skipSnapshot: true },
       );
     }
-  }, [loadFromDb, currentValue, valueExists, isDisabled, handleOnNewValue]);
+  }, [
+    loadFromDb,
+    currentValue,
+    valueExists,
+    isDisabled,
+    handleOnNewValue,
+    globalVariables,
+  ]);
 
   // Create handlers object for better organization
   const handlers: GlobalVariableHandlers = {

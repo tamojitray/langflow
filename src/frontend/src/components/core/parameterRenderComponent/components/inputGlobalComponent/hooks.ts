@@ -43,6 +43,7 @@ export const useInitialLoad = (
   globalVariables: GlobalVariable[],
   valueExists: boolean,
   unavailableField: string | null,
+  value: string,
   handleOnNewValue: (
     value: { value: string; load_from_db: boolean },
     options?: { skipSnapshot: boolean },
@@ -61,10 +62,10 @@ export const useInitialLoad = (
     }
 
     handleOnNewValueRef.current(
-      { value: "", load_from_db: false },
+      { value: value, load_from_db: false },
       { skipSnapshot: true },
     );
-  }, [disabled, loadFromDb, globalVariables.length, valueExists]);
+  }, [disabled, loadFromDb, globalVariables.length, valueExists, value]);
 
   // Handle unavailable field initialization
   useEffect(() => {

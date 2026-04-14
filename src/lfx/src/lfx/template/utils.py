@@ -41,8 +41,8 @@ def update_template_field(new_template, key, previous_value_dict) -> None:
         # if the new value is different, this means the default value has been changed
         # so we need to update the value in the template_field
         # and set other parameters to the new ones as well
-        if template_field.get("value") != previous_value_dict["value"]:
-            template_field["load_from_db"] = previous_value_dict.get("load_from_db", False)
+        if "load_from_db" in previous_value_dict:
+            template_field["load_from_db"] = previous_value_dict["load_from_db"]
         template_field["value"] = previous_value_dict["value"]
 
     if previous_value_dict.get("file_path"):
