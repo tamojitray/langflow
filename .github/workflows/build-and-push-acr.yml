@@ -1,13 +1,10 @@
 # ==============================================================================
-# GitHub Actions Workflow: Build & Push to ACR
+# GitHub Actions Workflow: Build & Push to ACR (Manual Trigger Only)
 # ==============================================================================
 name: Push to ACR
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 env:
   ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
