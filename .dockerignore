@@ -9,4 +9,5 @@ src/frontend/.dspy_cache
 **/*.pyc
 **/.pytest_cache
 **/.venv
-**/.env
+# **/.env (Removed to allow .env for specific setup)
+**/*.db

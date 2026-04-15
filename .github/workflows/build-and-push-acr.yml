@@ -1,37 +1,87 @@
 # ==============================================================================
-# GitHub Actions Workflow: Build & Push to ACR (Manual Trigger Only)
+# GitHub Actions Workflow: Build Docker Image & Push to Azure Container Registry
 # ==============================================================================
-name: Push to ACR
+# This workflow does the following:
+#   1. Checks out your code from GitHub
+#   2. Logs in to your Azure Container Registry (ACR)
+#   3. Builds a Docker image from docker/nginx-proxy/Dockerfile
+#   4. Pushes the built image to ACR
+#
+# TRIGGERS:
+#   - Push to the 'main' branch
+#   - Manual trigger from GitHub Actions UI (workflow_dispatch)
+# ==============================================================================
 
+name: Build and Push to ACR
+
+# ── When should this workflow run? ──────────────────────────────────────────────
 on:
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  push:
+    branches:
+      - main          # Runs automatically when code is pushed to the 'main' branch
+  workflow_dispatch:   # Allows you to manually trigger the workflow from GitHub UI
 
+# ── Environment variables (shared across all jobs) ─────────────────────────────
 env:
-  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
-  IMAGE_NAME: aigenesis-agent-marketplace
+  # These values come from your Azure Container Registry.
+  # These should be set as Secrets in your GitHub repository settings.
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}    # e.g., myregistry.azurecr.io
+  IMAGE_NAME: langflow
 
+# ── Jobs ────────────────────────────────────────────────────────────────────────
 jobs:
   build-and-push:
-    name: 🐳 Build & Push
-    runs-on: ubuntu-latest
+    name: 🐳 Build & Push Docker Image
+    runs-on: ubuntu-latest     # Uses a fresh Ubuntu virtual machine
 
     steps:
+      # ── Step 1: Check out repository code ──────────────────────────────────
       - name: 📥 Checkout code
         uses: actions/checkout@v4
+        # This clones your GitHub repo into the runner so we can access the
+        # Dockerfile and all source code.
 
-      - name: 🔐 Log in to ACR
+      # ── Step 2: Log in to Azure Container Registry ─────────────────────────
+      - name: 🔐 Log in to Azure Container Registry
         uses: azure/docker-login@v2
         with:
           login-server: ${{ secrets.ACR_LOGIN_SERVER }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
+        # This authenticates Docker to push images to your ACR.
+        # The credentials must be stored as GitHub Secrets (ACR_LOGIN_SERVER, ACR_USERNAME, ACR_PASSWORD).
 
-      - name: 🏗️ Build and Push
+      # ── Step 3: Build the Docker image ─────────────────────────────────────
+      - name: 🏗️ Build Docker image
         run: |
+          echo "🔨 Building Docker image using docker/nginx-proxy/Dockerfile..."
           docker build \
             --tag ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --tag ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest \
             --file docker/nginx-proxy/Dockerfile \
             .
+          echo "✅ Docker image built successfully!"
+        # This builds the image with TWO tags:
+        #   1. A unique tag using the Git commit SHA (for traceability)
+        #   2. The "latest" tag (always points to the newest build)
+
+      # ── Step 4: Push the Docker image to ACR ───────────────────────────────
+      - name: 🚀 Push Docker image to ACR
+        run: |
+          echo "📤 Pushing image to ACR..."
           docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+          echo "✅ Image pushed successfully!"
+        # This uploads both tagged images to your Azure Container Registry.
+
+      # ── Step 5: Print summary ──────────────────────────────────────────────
+      - name: 📋 Print image details
+        run: |
+          echo "============================================"
+          echo "  🎉 BUILD & PUSH COMPLETE!"
+          echo "============================================"
+          echo "  Registry:  ${{ env.ACR_LOGIN_SERVER }}"
+          echo "  Image:     ${{ env.IMAGE_NAME }}"
+          echo "  SHA Tag:   ${{ github.sha }}"
+          echo "  Full URI:  ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest"
+          echo "============================================"
